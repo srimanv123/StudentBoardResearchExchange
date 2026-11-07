@@ -8,6 +8,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
 
 public class UserRepository {
 
@@ -80,17 +82,12 @@ public class UserRepository {
             }
 
         } catch (SQLException e) {
-
             System.out.println("DATABASE REGISTRATION ERROR:");
             e.printStackTrace();
-
             return false;
-
         } catch (Exception e) {
-
             System.out.println("REGISTRATION ERROR:");
             e.printStackTrace();
-
             return false;
         }
     }
@@ -123,7 +120,7 @@ public class UserRepository {
                             resultSet.getString("account_status");
 
                     if (BCrypt.checkpw(password, hash)
-                            && "ACTIVE".equals(status)) {
+                            && "ACTIVE".equalsIgnoreCase(status)) {
 
                         System.out.println(
                                 "Login successful: " + email
@@ -142,16 +139,61 @@ public class UserRepository {
             }
 
         } catch (SQLException e) {
-
             System.out.println("DATABASE LOGIN ERROR:");
             e.printStackTrace();
-
         } catch (Exception e) {
-
             System.out.println("LOGIN ERROR:");
             e.printStackTrace();
         }
 
         return null;
+    }
+
+    // ================= USER STATS =================
+
+    public Map<String, Integer> getUserStats(int userId) {
+        Map<String, Integer> stats = new HashMap<>();
+        stats.put("posts", 0);
+        stats.put("comments", 0);
+        stats.put("resources", 0);
+        stats.put("bookmarks", 0);
+
+        try (Connection conn = DBConnection.getConnection()) {
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM posts WHERE user_id = ? AND status = 'ACTIVE'")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) stats.put("posts", rs.getInt(1));
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM comments WHERE user_id = ? AND status = 'ACTIVE'")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) stats.put("comments", rs.getInt(1));
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM resources WHERE user_id = ? AND status = 'ACTIVE'")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) stats.put("resources", rs.getInt(1));
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM bookmarks WHERE user_id = ?")) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) stats.put("bookmarks", rs.getInt(1));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error fetching user stats: " + e.getMessage());
+        }
+
+        return stats;
     }
 }

@@ -1,13 +1,14 @@
-
 package com.studentexchange.repository;
 
+import com.studentexchange.model.ContentReport;
 import com.studentexchange.util.DBConnection;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Types;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ReportRepository {
 
@@ -148,12 +149,29 @@ public class ReportRepository {
 
     // Display pending reports. Only active admins may view the queue.
     public void displayPendingReports(int adminId) {
+        List<ContentReport> list = getPendingReports(adminId);
+        if (list.isEmpty()) {
+            System.out.println("No pending reports found.");
+            return;
+        }
 
+        for (ContentReport cr : list) {
+            System.out.println("--------------------------------");
+            System.out.println("Report ID: " + cr.getReportId());
+            System.out.println("Reporter: " + cr.getReporterName());
+            System.out.println("Reason: " + cr.getReason());
+            System.out.println("Post: " + cr.getPostTitle());
+            System.out.println("Resource: " + cr.getResourceTitle());
+            System.out.println("Status: " + cr.getReportStatus());
+            System.out.println("Created: " + cr.getCreatedAt());
+        }
+    }
+
+    public List<ContentReport> getPendingReports(int adminId) {
+        List<ContentReport> reports = new ArrayList<>();
         String sql = """
-                SELECT cr.report_id,
-                       cr.reason,
-                       cr.report_status,
-                       cr.created_at,
+                SELECT cr.report_id, cr.reporter_id, cr.post_id, cr.resource_id,
+                       cr.reason, cr.report_status, cr.created_at,
                        u.name AS reporter,
                        p.title AS post_title,
                        r.title AS resource_title
@@ -171,43 +189,43 @@ public class ReportRepository {
                 System.err.println(
                         "Access denied: an active admin account is required."
                 );
-                return;
+                return reports;
             }
 
-            try (PreparedStatement statement =
-                         connection.prepareStatement(sql);
+            try (PreparedStatement statement = connection.prepareStatement(sql);
                  ResultSet result = statement.executeQuery()) {
 
-                boolean found = false;
-
                 while (result.next()) {
-                    found = true;
+                    int pVal = result.getInt("post_id");
+                    Integer postId = result.wasNull() ? null : pVal;
 
-                    System.out.println("--------------------------------");
-                    System.out.println(
-                            "Report ID: " + result.getInt("report_id"));
-                    System.out.println(
-                            "Reporter: " + result.getString("reporter"));
-                    System.out.println(
-                            "Reason: " + result.getString("reason"));
-                    System.out.println(
-                            "Post: " + result.getString("post_title"));
-                    System.out.println(
-                            "Resource: " + result.getString("resource_title"));
-                    System.out.println(
-                            "Status: " + result.getString("report_status"));
-                    System.out.println(
-                            "Created: " + result.getTimestamp("created_at"));
-                }
+                    int rVal = result.getInt("resource_id");
+                    Integer resourceId = result.wasNull() ? null : rVal;
 
-                if (!found) {
-                    System.out.println("No pending reports found.");
+                    reports.add(new ContentReport(
+                            result.getInt("report_id"),
+                            result.getInt("reporter_id"),
+                            result.getString("reporter"),
+                            postId,
+                            result.getString("post_title"),
+                            resourceId,
+                            result.getString("resource_title"),
+                            result.getString("reason"),
+                            result.getString("report_status"),
+                            result.getTimestamp("created_at")
+                    ));
                 }
             }
 
         } catch (SQLException e) {
             System.err.println("Error displaying reports: " + e.getMessage());
         }
+
+        return reports;
+    }
+
+    public int getPendingReportCount(int adminId) {
+        return getPendingReports(adminId).size();
     }
 
     // Review a report, optionally hiding the reported content.
@@ -253,14 +271,12 @@ public class ReportRepository {
                 UPDATE posts
                 SET status = 'HIDDEN'
                 WHERE post_id = ?
-                  AND status = 'ACTIVE'
                 """;
 
         String hideResourceSql = """
                 UPDATE resources
                 SET status = 'HIDDEN'
                 WHERE resource_id = ?
-                  AND status = 'ACTIVE'
                 """;
 
         try (Connection connection = DBConnection.getConnection()) {
@@ -268,7 +284,6 @@ public class ReportRepository {
             connection.setAutoCommit(false);
 
             try {
-                // Authorization is checked inside the transaction.
                 if (!isActiveAdmin(connection, adminId)) {
                     connection.rollback();
                     System.err.println(
@@ -296,13 +311,11 @@ public class ReportRepository {
                         }
 
                         int value = result.getInt("post_id");
-
                         if (!result.wasNull()) {
                             postId = value;
                         }
 
                         value = result.getInt("resource_id");
-
                         if (!result.wasNull()) {
                             resourceId = value;
                         }
@@ -310,32 +323,18 @@ public class ReportRepository {
                 }
 
                 if (hideContent) {
-                    int affectedRows = 0;
-
                     if (postId != null) {
                         try (PreparedStatement hide =
                                      connection.prepareStatement(hidePostSql)) {
-
                             hide.setInt(1, postId);
-                            affectedRows = hide.executeUpdate();
+                            hide.executeUpdate();
                         }
-
                     } else if (resourceId != null) {
                         try (PreparedStatement hide =
-                                     connection.prepareStatement(
-                                             hideResourceSql)) {
-
+                                     connection.prepareStatement(hideResourceSql)) {
                             hide.setInt(1, resourceId);
-                            affectedRows = hide.executeUpdate();
+                            hide.executeUpdate();
                         }
-                    }
-
-                    if (affectedRows != 1) {
-                        connection.rollback();
-                        System.err.println(
-                                "Could not hide content. It may not be active."
-                        );
-                        return false;
                     }
                 }
 
